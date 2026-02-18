@@ -25,6 +25,9 @@ pub enum Error {
     #[cfg(feature = "native-tls")]
     /// Ran into a native-tls error while creating the connection.
     NativeTlsCreateConnection,
+    #[cfg(feature = "native-tls")]
+    /// Ran into a native-tls error while appending a certificate.
+    NativeTlsAppendCert,
     /// Ran into an IO problem while loading the response.
     #[cfg(feature = "std")]
     IoError(io::Error),
@@ -108,6 +111,8 @@ impl fmt::Display for Error {
             RustlsAppendCert(err) => write!(f, "error appending certificate: {}", err),
             #[cfg(feature = "native-tls")]
             NativeTlsCreateConnection => write!(f, "error creating native-tls connection"),
+            #[cfg(feature = "native-tls")]
+            NativeTlsAppendCert => write!(f, "error appending certificate"),
             MalformedChunkLength => write!(f, "non-usize chunk length with transfer-encoding: chunked"),
             MalformedChunkEnd => write!(f, "chunk did not end after reading the expected amount of bytes"),
             MalformedContentLength => write!(f, "non-usize content length"),
@@ -162,5 +167,5 @@ impl From<io::Error> for Error {
 
 #[cfg(feature = "native-tls")]
 impl From<native_tls::Error> for Error {
-    fn from(other: native_tls::Error) -> Error { Error::NativeTlsCreateConnection }
+    fn from(_: native_tls::Error) -> Error { Error::NativeTlsCreateConnection }
 }

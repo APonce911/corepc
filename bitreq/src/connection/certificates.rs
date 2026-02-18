@@ -1,3 +1,7 @@
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+use std::sync::{Arc, Mutex};
+#[cfg(all(feature = "native-tls", not(feature = "rustls")))]
+use native_tls::{Certificate, TlsConnector, TlsConnectorBuilder};
 #[cfg(feature = "rustls")]
 use rustls::RootCertStore;
 #[cfg(feature = "rustls-webpki")]
@@ -14,7 +18,14 @@ pub(crate) struct Certificates {
 #[derive(Clone)]
 #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
 pub(crate) struct Certificates {
-    pub(crate) inner: Vec<u8>,
+    pub(crate) inner: CertificatesInner,
+}
+
+#[derive(Clone)]
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+pub(crate) enum CertificatesInner {
+    Builder(Arc<Mutex<TlsConnectorBuilder>>),
+    Built(TlsConnector),
 }
 
 impl Certificates {
@@ -31,7 +42,9 @@ impl Certificates {
 
     #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
     pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
-        let certificates = Self { inner: Vec::new() };
+        let builder = TlsConnector::builder();
+        let inner = CertificatesInner::Builder(Arc::new(Mutex::new(builder)));
+        let certificates = Self { inner: inner };
 
         if let Some(cert_der) = cert_der {
             certificates.append_certificate(cert_der)
@@ -50,6 +63,20 @@ impl Certificates {
 
     #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
     pub(crate) fn append_certificate(mut self, cert_der: Vec<u8>) -> Result<Self, Error> {
+        let new_inner = match self.inner {
+            CertificatesInner::Builder(builder_mutex) => {
+                let certificate = Certificate::from_der(&cert_der)?;
+
+                let mut builder = builder_mutex.lock().unwrap();
+                builder.add_root_certificate(certificate);
+
+                let connector = builder.build()?;
+                CertificatesInner::Built(connector)
+            }
+            CertificatesInner::Built(_) => return Err(Error::NativeTlsAppendCert),
+        };
+
+        self.inner = new_inner;
         Ok(self)
     }
 

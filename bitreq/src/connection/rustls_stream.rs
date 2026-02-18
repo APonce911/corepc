@@ -24,6 +24,8 @@ use webpki_roots::TLS_SERVER_ROOTS;
 use super::{AsyncHttpStream, AsyncTcpStream, HttpStream};
 #[cfg(any(feature = "rustls", feature = "native-tls"))]
 use crate::client::ClientConfig as CustomClientConfig;
+#[cfg(all(feature = "native-tls", not(feature = "rustls")))]
+use crate::connection::certificates::CertificatesInner;
 use crate::Error;
 
 #[cfg(feature = "rustls")]
@@ -223,9 +225,13 @@ pub(super) async fn wrap_async_stream_with_configs(
     #[cfg(feature = "log")]
     log::trace!("Setting up TLS parameters for {host}.");
 
+    let connector = match custom_client_config.tls.unwrap().certificates.inner {
+        CertificatesInner::Builder(b) => b.lock().unwrap().build()?,
+        CertificatesInner::Built(conn) => conn,
+    };
     // TODO: Once we can `get_or_try_init`, so that instead
     // https://github.com/rust-lang/rust/issues/109737
-    let sync_connector = match CONNECTOR.get_or_init(build_tls_connector) {
+    let sync_connector = match CONNECTOR.get_or_init(|| Ok(connector)) {
         Ok(c) => c.clone(),
         Err(e) => return Err(Error::NativeTlsCreateConnection),
     };
