@@ -6,13 +6,32 @@ use webpki_roots::TLS_SERVER_ROOTS;
 use crate::Error;
 
 #[derive(Clone)]
+#[cfg(feature = "rustls")]
 pub(crate) struct Certificates {
     pub(crate) inner: RootCertStore,
 }
 
+#[derive(Clone)]
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+pub(crate) struct Certificates {
+    pub(crate) inner: Vec<u8>,
+}
+
 impl Certificates {
+    #[cfg(feature = "rustls")]
     pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
         let certificates = Self { inner: RootCertStore::empty() };
+
+        if let Some(cert_der) = cert_der {
+            certificates.append_certificate(cert_der)
+        } else {
+            Ok(certificates)
+        }
+    }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
+        let certificates = Self { inner: Vec::new() };
 
         if let Some(cert_der) = cert_der {
             certificates.append_certificate(cert_der)
@@ -26,6 +45,11 @@ impl Certificates {
         let mut certificates = self.inner;
         certificates.add(&rustls::Certificate(cert_der)).map_err(Error::RustlsAppendCert)?;
         self.inner = certificates;
+        Ok(self)
+    }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    pub(crate) fn append_certificate(mut self, cert_der: Vec<u8>) -> Result<Self, Error> {
         Ok(self)
     }
 
@@ -58,4 +82,7 @@ impl Certificates {
         self.inner = root_certificates;
         self
     }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    pub(crate) fn with_root_certificates(mut self) -> Self { self }
 }
