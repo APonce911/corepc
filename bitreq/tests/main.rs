@@ -53,7 +53,27 @@ async fn test_https_with_client_builder() {
 }
 
 #[tokio::test]
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+async fn test_https_with_client_builder() {
+    setup();
+    let client = bitreq::Client::builder().build();
+    let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
+    assert_eq!(response.status_code, 200);
+}
+
+#[tokio::test]
 #[cfg(feature = "rustls")]
+async fn test_https_with_client_builder_and_cert() {
+    setup();
+    let cert_der = include_bytes!("test_cert.der");
+    let client =
+        bitreq::Client::builder().with_root_certificate(cert_der.as_slice()).unwrap().build();
+    let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
+    assert_eq!(response.status_code, 200);
+}
+
+#[tokio::test]
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
 async fn test_https_with_client_builder_and_cert() {
     setup();
     let cert_der = include_bytes!("test_cert.der");
