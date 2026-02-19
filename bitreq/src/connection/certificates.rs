@@ -110,7 +110,4 @@ impl Certificates {
         self.inner = root_certificates;
         self
     }
-
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
-    pub(crate) fn with_root_certificates(mut self) -> Self { self }
 }

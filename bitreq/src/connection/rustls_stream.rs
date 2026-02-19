@@ -5,6 +5,7 @@
 use alloc::sync::Arc;
 #[cfg(feature = "rustls")]
 use core::convert::TryFrom;
+#[cfg(feature = "rustls")]
 use std::io;
 use std::net::TcpStream;
 use std::sync::OnceLock;
@@ -163,7 +164,7 @@ static CONNECTOR: OnceLock<Result<TlsConnector, Error>> = OnceLock::new();
 #[cfg(all(feature = "native-tls", not(feature = "rustls")))]
 fn native_tls_err<S>(e: HandshakeError<S>) -> Error {
     match e {
-        HandshakeError::Failure(e) => Error::NativeTlsCreateConnection,
+        HandshakeError::Failure(_) => Error::NativeTlsCreateConnection,
         HandshakeError::WouldBlock(_) => {
             debug_assert!(false, "We shouldn't hit a blocking error");
             Error::Other("Got a WouldBlock error from native-tls")
@@ -185,7 +186,7 @@ pub(super) fn wrap_stream(tcp: TcpStream, host: &str) -> Result<HttpStream, Erro
     // https://github.com/rust-lang/rust/issues/109737
     let connector = match CONNECTOR.get_or_init(build_tls_connector) {
         Ok(c) => c.clone(),
-        Err(e) => return Err(Error::NativeTlsCreateConnection),
+        Err(_) => return Err(Error::NativeTlsCreateConnection),
     };
 
     #[cfg(feature = "log")]
@@ -211,7 +212,7 @@ pub(super) async fn wrap_async_stream(
     // https://github.com/rust-lang/rust/issues/109737
     let sync_connector = match CONNECTOR.get_or_init(build_tls_connector) {
         Ok(c) => c.clone(),
-        Err(e) => return Err(Error::NativeTlsCreateConnection),
+        Err(_) => return Err(Error::NativeTlsCreateConnection),
     };
 
     let async_connector = AsyncTlsConnector::from(sync_connector);
@@ -241,7 +242,7 @@ pub(super) async fn wrap_async_stream_with_configs(
     // https://github.com/rust-lang/rust/issues/109737
     let sync_connector = match CONNECTOR.get_or_init(|| Ok(connector)) {
         Ok(c) => c.clone(),
-        Err(e) => return Err(Error::NativeTlsCreateConnection),
+        Err(_) => return Err(Error::NativeTlsCreateConnection),
     };
 
     let async_connector = AsyncTlsConnector::from(sync_connector);
