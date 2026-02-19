@@ -19,11 +19,18 @@ use tokio_native_tls::TlsConnector as AsyncTlsConnector;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 #[cfg(feature = "rustls-webpki")]
 use webpki_roots::TLS_SERVER_ROOTS;
+
 #[cfg(any(feature = "rustls", feature = "native-tls"))]
 use super::HttpStream;
-#[cfg(any(all(feature = "native-tls", feature = "tokio-native-tls"), all(feature = "rustls", feature = "tokio-rustls")))]
+#[cfg(any(
+    all(feature = "native-tls", feature = "tokio-native-tls"),
+    all(feature = "rustls", feature = "tokio-rustls")
+))]
 use super::{AsyncHttpStream, AsyncTcpStream};
-#[cfg(any(all(feature = "native-tls", feature = "tokio-native-tls"), all(feature = "rustls", feature = "tokio-rustls")))]
+#[cfg(any(
+    all(feature = "native-tls", feature = "tokio-native-tls"),
+    all(feature = "rustls", feature = "tokio-rustls")
+))]
 use crate::client::ClientConfig as CustomClientConfig;
 #[cfg(all(feature = "native-tls", feature = "tokio-native-tls", not(feature = "rustls")))]
 use crate::connection::certificates::CertificatesInner;

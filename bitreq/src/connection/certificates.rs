@@ -1,5 +1,6 @@
 #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
 use std::sync::{Arc, Mutex};
+
 #[cfg(all(feature = "native-tls", not(feature = "rustls")))]
 use native_tls::{Certificate, TlsConnector, TlsConnectorBuilder};
 #[cfg(feature = "rustls")]
