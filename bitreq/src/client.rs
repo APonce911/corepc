@@ -14,18 +14,30 @@ use crate::request::{OwnedConnectionParams as ConnectionKey, ParsedRequest};
 use crate::{Error, Request, Response};
 
 mod tls {
-    #[cfg(not(all(feature = "rustls", feature = "tokio-rustls")))]
+    #[cfg(not(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    )))]
     pub(crate) use self::disabled::*;
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
     pub(crate) use self::enabled::*;
 
-    #[cfg(not(all(feature = "rustls", feature = "tokio-rustls")))]
+    #[cfg(not(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    )))]
     mod disabled {
         #[derive(Clone)]
         pub(crate) struct ClientConfig;
     }
 
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
     mod enabled {
         use crate::client::ClientBuilder;
         use crate::connection::certificates::Certificates;

@@ -171,6 +171,7 @@ type AsyncSecuredStream = rustls_stream::AsyncSecuredStream;
 #[cfg(feature = "async")]
 pub(crate) enum AsyncHttpStream {
     Unsecured(AsyncTcpStream),
+    #[cfg(any(feature = "tokio-rustls", feature = "tokio-native-tls"))]
     Secured(Box<AsyncSecuredStream>),
 }
 
@@ -322,7 +323,7 @@ impl AsyncConnection {
         _socket: AsyncTcpStream,
         _host: &str,
         _client_config: Option<ClientConfig>,
-    ) -> Result<_, Error> {
+    ) -> Result<AsyncHttpStream, Error> {
         Err(Error::HttpsFeatureNotEnabled)
     }
 
