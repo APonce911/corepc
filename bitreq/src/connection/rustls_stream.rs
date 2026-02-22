@@ -240,14 +240,8 @@ pub(super) async fn wrap_async_stream_with_configs(
         CertificatesInner::Builder(b) => b.lock().unwrap().build()?,
         CertificatesInner::Built(conn) => conn.clone(),
     };
-    // TODO: Once we can `get_or_try_init`, so that instead
-    // https://github.com/rust-lang/rust/issues/109737
-    let sync_connector = match CONNECTOR.get_or_init(|| Ok(connector)) {
-        Ok(c) => c.clone(),
-        Err(err) => return Err(Error::IoError(io::Error::new(io::ErrorKind::Other, err))),
-    };
 
-    let async_connector = AsyncTlsConnector::from(sync_connector);
+    let async_connector = AsyncTlsConnector::from(connector);
 
     #[cfg(feature = "log")]
     log::trace!("Establishing TLS session to {host}.");
