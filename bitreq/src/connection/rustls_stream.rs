@@ -1,7 +1,7 @@
 //! TLS connection handling functionality - supports both `rustls` and `native-tls` backends.
 //! When both features are enabled, rustls takes precedence.
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls", feature = "native-tls"))]
 use alloc::sync::Arc;
 #[cfg(feature = "rustls")]
 use core::convert::TryFrom;
@@ -132,7 +132,7 @@ pub(super) async fn wrap_async_stream(
 pub(super) async fn wrap_async_stream_with_configs(
     tcp: AsyncTcpStream,
     host: &str,
-    custom_client_config: CustomClientConfig,
+    custom_client_config: Arc<CustomClientConfig>,
 ) -> Result<AsyncHttpStream, Error> {
     #[cfg(feature = "log")]
     log::trace!("Setting up TLS parameters for {host}.");
@@ -141,11 +141,12 @@ pub(super) async fn wrap_async_stream_with_configs(
         Err(err) => return Err(Error::IoError(io::Error::new(io::ErrorKind::Other, err))),
     };
 
-    let mut certificates = custom_client_config.tls.unwrap().certificates;
+    let tls_config = custom_client_config.tls.as_ref().unwrap();
+    let mut certificates = tls_config.certificates.clone();
     certificates = certificates.with_root_certificates();
 
     let client_config = build_rustls_client_config(certificates.inner);
-    let connector = TlsConnector::from(CONFIG.get_or_init(|| client_config).clone());
+    let connector = TlsConnector::from(client_config);
 
     #[cfg(feature = "log")]
     log::trace!("Establishing TLS session to {host}.");
@@ -229,14 +230,15 @@ pub(super) async fn wrap_async_stream(
 pub(super) async fn wrap_async_stream_with_configs(
     tcp: AsyncTcpStream,
     host: &str,
-    custom_client_config: CustomClientConfig,
+    custom_client_config: Arc<CustomClientConfig>,
 ) -> Result<AsyncHttpStream, Error> {
     #[cfg(feature = "log")]
     log::trace!("Setting up TLS parameters for {host}.");
 
-    let connector = match custom_client_config.tls.unwrap().certificates.inner {
+    let tls_config = custom_client_config.tls.as_ref().unwrap();
+    let connector = match &tls_config.certificates.inner {
         CertificatesInner::Builder(b) => b.lock().unwrap().build()?,
-        CertificatesInner::Built(conn) => conn,
+        CertificatesInner::Built(conn) => conn.clone(),
     };
     // TODO: Once we can `get_or_try_init`, so that instead
     // https://github.com/rust-lang/rust/issues/109737

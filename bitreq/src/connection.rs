@@ -245,6 +245,7 @@ struct AsyncConnectionState {
     /// Defaults to 60 seconds after open to align with nginx's default timeout of 75 seconds, but
     /// can be overridden by the `Keep-Alive` header.
     socket_new_requests_timeout: Mutex<Instant>,
+    client_config: Option<Arc<ClientConfig>>,
 }
 
 #[cfg(feature = "async")]
@@ -273,13 +274,15 @@ impl AsyncConnection {
     pub(crate) async fn new(
         params: ConnectionParams<'_>,
         timeout_at: Option<Instant>,
-        client_config: Option<ClientConfig>,
+        client_config: Option<Arc<ClientConfig>>,
     ) -> Result<AsyncConnection, Error> {
+        let config = client_config.as_ref().map(Arc::clone);
+
         let future = async move {
             let socket = Self::connect(params).await?;
 
             if params.https {
-                Self::wrap_async_stream(socket, params.host, client_config).await
+                Self::wrap_async_stream(socket, params.host, config).await
             } else {
                 Ok(AsyncHttpStream::Unsecured(socket))
             }
@@ -300,6 +303,7 @@ impl AsyncConnection {
             readable_request_id: AtomicUsize::new(0),
             min_dropped_reader_id: AtomicUsize::new(usize::MAX),
             socket_new_requests_timeout: Mutex::new(Instant::now() + Duration::from_secs(60)),
+            client_config,
         }))))
     }
 
@@ -308,7 +312,7 @@ impl AsyncConnection {
     async fn wrap_async_stream(
         socket: AsyncTcpStream,
         host: &str,
-        client_config: Option<ClientConfig>,
+        client_config: Option<Arc<ClientConfig>>,
     ) -> Result<AsyncHttpStream, Error> {
         if let Some(client_config) = client_config {
             rustls_stream::wrap_async_stream_with_configs(socket, host, client_config).await
@@ -322,7 +326,7 @@ impl AsyncConnection {
     async fn wrap_async_stream(
         _socket: AsyncTcpStream,
         _host: &str,
-        _client_config: Option<ClientConfig>,
+        _client_config: Option<Arc<ClientConfig>>,
     ) -> Result<AsyncHttpStream, Error> {
         Err(Error::HttpsFeatureNotEnabled)
     }
@@ -369,7 +373,7 @@ impl AsyncConnection {
                 // do proxy things
                 let mut tcp = Self::tcp_connect(&proxy.server, proxy.port).await?;
 
-                let proxy_request = proxy.connect(params.host, params.port.port());
+                let proxy_request = proxy.connect(params.host, params.port);
                 tcp.write_all(proxy_request.as_bytes()).await?;
                 tcp.flush().await?;
 
@@ -398,11 +402,11 @@ impl AsyncConnection {
 
                 Ok(tcp)
             }
-            None => Self::tcp_connect(params.host, params.port.port()).await,
+            None => Self::tcp_connect(params.host, params.port).await,
         }
 
         #[cfg(not(feature = "proxy"))]
-        Self::tcp_connect(&params.host, params.port.port()).await
+        Self::tcp_connect(&params.host, params.port).await
     }
 
     async fn timeout<O, F: Future<Output = O>>(timeout: Option<Instant>, f: F) -> Result<O, Error> {
@@ -475,9 +479,13 @@ impl AsyncConnection {
                     retry_new_connection!(_internal);
                 };
                 (_internal) => {
-                    let new_connection =
-                        AsyncConnection::new(request.connection_params(), request.timeout_at, None)
-                            .await?;
+                    let config = conn.client_config.as_ref().map(Arc::clone);
+                    let new_connection = AsyncConnection::new(
+                        request.connection_params(),
+                        request.timeout_at,
+                        config,
+                    )
+                    .await?;
                     *self.0.lock().unwrap() = Arc::clone(&*new_connection.0.lock().unwrap());
                     core::mem::drop(read);
                     // Note that this cannot recurse infinitely as we'll always be able to send at
@@ -739,7 +747,7 @@ impl Connection {
                 // do proxy things
                 let mut tcp = Self::tcp_connect(&proxy.server, proxy.port, timeout_at)?;
 
-                write!(tcp, "{}", proxy.connect(params.host, params.port.port()))?;
+                write!(tcp, "{}", proxy.connect(params.host, params.port))?;
                 tcp.flush()?;
 
                 // Max proxy response size to prevent unbounded memory allocation
@@ -767,11 +775,11 @@ impl Connection {
 
                 Ok(tcp)
             }
-            None => Self::tcp_connect(params.host, params.port.port(), timeout_at),
+            None => Self::tcp_connect(params.host, params.port, timeout_at),
         }
 
         #[cfg(not(feature = "proxy"))]
-        Self::tcp_connect(params.host, params.port.port(), timeout_at)
+        Self::tcp_connect(params.host, params.port, timeout_at)
     }
 
     /// Sends the [`Request`](struct.Request.html), consumes this
