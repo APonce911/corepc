@@ -71,10 +71,18 @@ mod tls {
                 Ok(Self { certificates })
             }
 
+            #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
             fn build(mut self) -> Self {
                 self.certificates = self.certificates.with_root_certificates();
                 self
             }
+
+            #[cfg(all(
+                feature = "native-tls",
+                not(feature = "rustls"),
+                feature = "tokio-native-tls"
+            ))]
+            fn build(self) -> Self { self }
         }
 
         impl ClientBuilder {
