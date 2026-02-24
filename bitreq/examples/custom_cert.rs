@@ -1,7 +1,14 @@
 //! This example demonstrates the client builder with custom DER certificate.
 //! to run: cargo run --example custom_cert --features async-https-rustls or
 //! cargo run --example custom_cert --features async-https-native-tls
+#[cfg(not(any(feature = "async-https-rustls", feature = "async-https-native-tls")))]
+fn main() {
+    println!(
+        "This example requires the 'async-https-rustls' or 'async-https-native-tls' features."
+    );
+}
 
+#[cfg(any(feature = "async-https-rustls", feature = "async-https-native-tls"))]
 fn main() -> Result<(), bitreq::Error> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
