@@ -70,13 +70,30 @@ impl Certificates {
             CertificatesInner::Builder(builder_mutex) => {
                 let certificate = Certificate::from_der(&cert_der)?;
 
-                let mut builder = builder_mutex.lock().unwrap();
-                builder.add_root_certificate(certificate);
+                {
+                    let mut builder_guard = builder_mutex.lock().unwrap();
+                    builder_guard.add_root_certificate(certificate);
+                }
 
-                let connector = builder.build()?;
-                CertificatesInner::Built(connector)
+                CertificatesInner::Builder(builder_mutex)
             }
             CertificatesInner::Built(_) => return Err(Error::NativeTlsAppendCert),
+        };
+
+        self.inner = new_inner;
+        Ok(self)
+    }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    pub(crate) fn build(mut self) -> Result<Self, Error> {
+        let new_inner = match self.inner {
+            CertificatesInner::Builder(builder_mutex) => {
+                let mut builder_guard = builder_mutex.lock().unwrap();
+                let connector = builder_guard.build()?;
+
+                CertificatesInner::Built(connector)
+            }
+            CertificatesInner::Built(_) => return Ok(self),
         };
 
         self.inner = new_inner;

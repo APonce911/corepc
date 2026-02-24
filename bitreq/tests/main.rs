@@ -47,7 +47,7 @@ async fn test_https_with_client() {
 #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
 async fn test_https_with_client_builder() {
     setup();
-    let client = bitreq::Client::builder().build();
+    let client = bitreq::Client::builder().build().unwrap();
     let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
     assert_eq!(response.status_code, 200);
 }
@@ -56,7 +56,7 @@ async fn test_https_with_client_builder() {
 #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
 async fn test_https_with_client_builder() {
     setup();
-    let client = bitreq::Client::builder().build();
+    let client = bitreq::Client::builder().build().unwrap();
     let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
     assert_eq!(response.status_code, 200);
 }
@@ -66,8 +66,11 @@ async fn test_https_with_client_builder() {
 async fn test_https_with_client_builder_and_cert() {
     setup();
     let cert_der = include_bytes!("test_cert.der");
-    let client =
-        bitreq::Client::builder().with_root_certificate(cert_der.as_slice()).unwrap().build();
+    let client = bitreq::Client::builder()
+        .with_root_certificate(cert_der.as_slice())
+        .unwrap()
+        .build()
+        .unwrap();
     let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
     assert_eq!(response.status_code, 200);
 }
@@ -77,8 +80,49 @@ async fn test_https_with_client_builder_and_cert() {
 async fn test_https_with_client_builder_and_cert() {
     setup();
     let cert_der = include_bytes!("test_cert.der");
-    let client =
-        bitreq::Client::builder().with_root_certificate(cert_der.as_slice()).unwrap().build();
+    let client = bitreq::Client::builder()
+        .with_root_certificate(cert_der.as_slice())
+        .unwrap()
+        .build()
+        .unwrap();
+    let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
+    assert_eq!(response.status_code, 200);
+}
+
+#[tokio::test]
+#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+async fn test_https_with_multiple_certs() {
+    setup();
+    let cert_der = include_bytes!("test_cert.der");
+    let ca_der = include_bytes!("ca_cert.der");
+
+    let client = bitreq::Client::builder()
+        .with_root_certificate(cert_der.as_slice())
+        .unwrap()
+        .with_root_certificate(ca_der.as_slice())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
+    assert_eq!(response.status_code, 200);
+}
+
+#[tokio::test]
+#[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+async fn test_https_with_multiple_certs() {
+    setup();
+    let cert_der = include_bytes!("test_cert.der");
+    let ca_der = include_bytes!("ca_cert.der");
+
+    let client = bitreq::Client::builder()
+        .with_root_certificate(cert_der.as_slice())
+        .unwrap()
+        .with_root_certificate(ca_der.as_slice())
+        .unwrap()
+        .build()
+        .unwrap();
+
     let response = client.send_async(bitreq::get("https://example.com")).await.unwrap();
     assert_eq!(response.status_code, 200);
 }

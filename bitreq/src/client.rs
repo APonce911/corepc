@@ -30,11 +30,13 @@ mod tls {
         all(feature = "rustls", feature = "tokio-rustls")
     )))]
     mod disabled {
+        use crate::Error;
+
         #[derive(Clone)]
         pub(crate) struct ClientConfig;
 
         impl ClientConfig {
-            pub fn build(self) -> Self { self }
+            pub fn build(self) -> Result<Self, Error> { Ok(Self) }
         }
     }
 
@@ -53,9 +55,9 @@ mod tls {
         }
 
         impl ClientConfig {
-            pub fn build(self) -> Self {
-                let tls = self.tls.map(|tls| tls.build());
-                Self { tls }
+            pub fn build(self) -> Result<Self, Error> {
+                let tls = self.tls.map(|tls| tls.build()).transpose()?;
+                Ok(Self { tls })
             }
         }
 
@@ -72,9 +74,9 @@ mod tls {
             }
 
             #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
-            fn build(mut self) -> Self {
+            fn build(mut self) -> Result<Self, Error> {
                 self.certificates = self.certificates.with_root_certificates();
-                self
+                Ok(self)
             }
 
             #[cfg(all(
@@ -82,7 +84,12 @@ mod tls {
                 not(feature = "rustls"),
                 feature = "tokio-native-tls"
             ))]
-            fn build(self) -> Self { self }
+            fn build(mut self) -> Result<Self, Error> {
+                let certificates = self.certificates.build()?;
+
+                self.certificates = certificates;
+                Ok(self)
+            }
         }
 
         impl ClientBuilder {
@@ -102,19 +109,22 @@ mod tls {
             ///
             /// ```no_run
             /// # use bitreq::Client;
+            /// # async fn example() -> Result<(), bitreq::Error> {
             /// // Using a byte slice
             /// let cert_der: &[u8] = include_bytes!("../tests/test_cert.der");
             /// let client = Client::builder()
             ///     .with_root_certificate(cert_der)
             ///     .unwrap()
-            ///     .build();
+            ///     .build()?;
             ///
             /// // Using a Vec<u8>
             /// let cert_vec: Vec<u8> = cert_der.to_vec();
             /// let client = Client::builder()
             ///     .with_root_certificate(cert_vec)
             ///     .unwrap()
-            ///     .build();
+            ///     .build()?;
+            /// # Ok(())
+            /// # }
             /// ```
             pub fn with_root_certificate<T: Into<Vec<u8>>>(
                 mut self,
@@ -161,7 +171,7 @@ pub struct ClientBuilder {
 /// let cert_der = include_bytes!("../tests/test_cert.der");
 /// let client = Client::builder()
 ///     .with_capacity(20)
-///     .build();
+///     .build()?;
 ///
 /// let response = bitreq::get("https://example.com")
 ///     .send_async_with_client(&client)
@@ -192,7 +202,8 @@ impl ClientBuilder {
     /// # use bitreq::Client;
     /// let client = Client::builder()
     ///     .with_capacity(10)
-    ///     .build();
+    ///     .build()
+    ///     .unwrap();
     /// ```
     pub fn with_capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
@@ -203,16 +214,22 @@ impl ClientBuilder {
     ///
     /// Consumes the builder and returns a configured `Client` instance
     /// ready to send requests with connection pooling.
-    pub fn build(self) -> Client {
-        let client_config = self.client_config.map(|c| c.build());
-        Client {
+    pub fn build(self) -> Result<Client, Error> {
+        let build = self.client_config.map(|c| c.build());
+        let client_config = match build {
+            Some(Ok(config)) => Some(Arc::new(config)),
+            Some(Err(e)) => return Err(e),
+            None => None,
+        };
+
+        Ok(Client {
             r#async: Arc::new(Mutex::new(ClientImpl {
                 connections: HashMap::new(),
                 lru_order: VecDeque::new(),
                 capacity: self.capacity,
-                client_config: client_config.map(Arc::new),
+                client_config,
             })),
-        }
+        })
     }
 }
 
