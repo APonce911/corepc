@@ -9,148 +9,75 @@
 use std::collections::{hash_map, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(
+    all(feature = "native-tls", feature = "tokio-native-tls"),
+    all(feature = "rustls", feature = "tokio-rustls")
+))]
+use crate::connection::certificates::Certificates;
 use crate::connection::AsyncConnection;
 use crate::request::{OwnedConnectionParams as ConnectionKey, ParsedRequest};
 use crate::{Error, Request, Response};
 
-mod tls {
-    #[cfg(not(any(
-        all(feature = "native-tls", feature = "tokio-native-tls"),
-        all(feature = "rustls", feature = "tokio-rustls")
-    )))]
-    pub(crate) use self::disabled::*;
+#[derive(Clone)]
+pub(crate) struct ClientConfig {
     #[cfg(any(
         all(feature = "native-tls", feature = "tokio-native-tls"),
         all(feature = "rustls", feature = "tokio-rustls")
     ))]
-    pub(crate) use self::enabled::*;
-
-    #[cfg(not(any(
-        all(feature = "native-tls", feature = "tokio-native-tls"),
-        all(feature = "rustls", feature = "tokio-rustls")
-    )))]
-    mod disabled {
-        use crate::Error;
-
-        #[derive(Clone)]
-        pub(crate) struct ClientConfig;
-
-        impl ClientConfig {
-            pub fn build(self) -> Result<Self, Error> { Ok(Self) }
-        }
-    }
-
-    #[cfg(any(
-        all(feature = "native-tls", feature = "tokio-native-tls"),
-        all(feature = "rustls", feature = "tokio-rustls")
-    ))]
-    mod enabled {
-        use crate::client::ClientBuilder;
-        use crate::connection::certificates::Certificates;
-        use crate::Error;
-
-        #[derive(Clone)]
-        pub(crate) struct ClientConfig {
-            pub(crate) tls: Option<TlsConfig>,
-        }
-
-        impl ClientConfig {
-            pub fn build(self) -> Result<Self, Error> {
-                let tls = self.tls.map(|tls| tls.build()).transpose()?;
-                Ok(Self { tls })
-            }
-        }
-
-        #[derive(Clone)]
-        pub(crate) struct TlsConfig {
-            pub(crate) certificates: Certificates,
-        }
-
-        impl TlsConfig {
-            fn new(cert_der: Vec<u8>) -> Result<Self, Error> {
-                let certificates = Certificates::new(Some(cert_der))?;
-
-                Ok(Self { certificates })
-            }
-
-            #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
-            fn build(mut self) -> Result<Self, Error> {
-                self.certificates = self.certificates.with_root_certificates();
-                Ok(self)
-            }
-
-            #[cfg(all(
-                feature = "native-tls",
-                not(feature = "rustls"),
-                feature = "tokio-native-tls"
-            ))]
-            fn build(mut self) -> Result<Self, Error> {
-                let certificates = self.certificates.build()?;
-
-                self.certificates = certificates;
-                Ok(self)
-            }
-        }
-
-        impl ClientBuilder {
-            /// Adds a custom root certificate for TLS verification.
-            ///
-            /// The certificate must be provided in DER format. This method accepts any type
-            /// that can be converted into a `Vec<u8>`, such as `Vec<u8>`, `&[u8]`, or arrays.
-            /// This is useful when connecting to servers using self-signed certificates
-            /// or custom Certificate Authorities.
-            ///
-            /// # Arguments
-            ///
-            /// * `cert_der` - A DER-encoded X.509 certificate. Accepts any type that implements
-            ///   `Into<Vec<u8>>` (e.g., `&[u8]`, `Vec<u8>`, or `[u8; N]`).
-            ///
-            /// # Example
-            ///
-            /// ```no_run
-            /// # use bitreq::Client;
-            /// # async fn example() -> Result<(), bitreq::Error> {
-            /// // Using a byte slice
-            /// let cert_der: &[u8] = include_bytes!("../tests/test_cert.der");
-            /// let client = Client::builder()
-            ///     .with_root_certificate(cert_der)
-            ///     .unwrap()
-            ///     .build()?;
-            ///
-            /// // Using a Vec<u8>
-            /// let cert_vec: Vec<u8> = cert_der.to_vec();
-            /// let client = Client::builder()
-            ///     .with_root_certificate(cert_vec)
-            ///     .unwrap()
-            ///     .build()?;
-            /// # Ok(())
-            /// # }
-            /// ```
-            pub fn with_root_certificate<T: Into<Vec<u8>>>(
-                mut self,
-                cert_der: T,
-            ) -> Result<Self, Error> {
-                let cert_der = cert_der.into();
-
-                if let Some(ref mut client_config) = self.client_config {
-                    if let Some(ref mut tls_config) = client_config.tls {
-                        let certificates =
-                            tls_config.certificates.clone().append_certificate(cert_der)?;
-                        tls_config.certificates = certificates;
-
-                        return Ok(self);
-                    }
-                }
-
-                let tls_config = TlsConfig::new(cert_der)?;
-                self.client_config = Some(ClientConfig { tls: Some(tls_config) });
-                Ok(self)
-            }
-        }
-    }
+    pub(crate) tls: Option<TlsConfig>,
 }
 
-pub(crate) use tls::ClientConfig;
+impl ClientConfig {
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
+    pub fn build(self) -> Result<Self, Error> {
+        let tls = self.tls.map(|tls| tls.build()).transpose()?;
+        Ok(Self { tls })
+    }
+
+    #[cfg(not(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    )))]
+    pub fn build(self) -> Result<Self, Error> { Ok(Self {}) }
+}
+
+#[cfg(any(
+    all(feature = "native-tls", feature = "tokio-native-tls"),
+    all(feature = "rustls", feature = "tokio-rustls")
+))]
+#[derive(Clone)]
+pub(crate) struct TlsConfig {
+    pub(crate) certificates: Certificates,
+}
+
+#[cfg(any(
+    all(feature = "native-tls", feature = "tokio-native-tls"),
+    all(feature = "rustls", feature = "tokio-rustls")
+))]
+impl TlsConfig {
+    fn new(cert_der: Vec<u8>) -> Result<Self, Error> {
+        let certificates = Certificates::new(Some(cert_der))?;
+
+        Ok(Self { certificates })
+    }
+
+    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+    fn build(mut self) -> Result<Self, Error> {
+        self.certificates = self.certificates.with_root_certificates();
+        Ok(self)
+    }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    fn build(mut self) -> Result<Self, Error> {
+        let certificates = self.certificates.build()?;
+
+        self.certificates = certificates;
+        Ok(self)
+    }
+}
 
 pub struct ClientBuilder {
     capacity: usize,
@@ -230,6 +157,60 @@ impl ClientBuilder {
                 client_config,
             })),
         })
+    }
+
+    /// Adds a custom root certificate for TLS verification.
+    ///
+    /// The certificate must be provided in DER format. This method accepts any type
+    /// that can be converted into a `Vec<u8>`, such as `Vec<u8>`, `&[u8]`, or arrays.
+    /// This is useful when connecting to servers using self-signed certificates
+    /// or custom Certificate Authorities.
+    ///
+    /// # Arguments
+    ///
+    /// * `cert_der` - A DER-encoded X.509 certificate. Accepts any type that implements
+    ///   `Into<Vec<u8>>` (e.g., `&[u8]`, `Vec<u8>`, or `[u8; N]`).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use bitreq::Client;
+    /// # async fn example() -> Result<(), bitreq::Error> {
+    /// // Using a byte slice
+    /// let cert_der: &[u8] = include_bytes!("../tests/test_cert.der");
+    /// let client = Client::builder()
+    ///     .with_root_certificate(cert_der)
+    ///     .unwrap()
+    ///     .build()?;
+    ///
+    /// // Using a Vec<u8>
+    /// let cert_vec: Vec<u8> = cert_der.to_vec();
+    /// let client = Client::builder()
+    ///     .with_root_certificate(cert_vec)
+    ///     .unwrap()
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
+    pub fn with_root_certificate<T: Into<Vec<u8>>>(mut self, cert_der: T) -> Result<Self, Error> {
+        let cert_der = cert_der.into();
+
+        if let Some(ref mut client_config) = self.client_config {
+            if let Some(ref mut tls_config) = client_config.tls {
+                let certificates = tls_config.certificates.clone().append_certificate(cert_der)?;
+                tls_config.certificates = certificates;
+
+                return Ok(self);
+            }
+        }
+
+        let tls_config = TlsConfig::new(cert_der)?;
+        self.client_config = Some(ClientConfig { tls: Some(tls_config) });
+        Ok(self)
     }
 }
 
