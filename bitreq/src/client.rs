@@ -86,19 +86,13 @@ pub struct ClientBuilder {
 
 /// Builder for configuring a `Client` with custom settings.
 ///
-/// The builder allows you to set the connection pool capacity and add
-/// custom root certificates for TLS verification before constructing the client.
-///
 /// # Example
 ///
 /// ```no_run
 /// # async fn example() -> Result<(), bitreq::Error> {
 /// use bitreq::{Client, RequestExt};
 ///
-/// let cert_der = include_bytes!("../tests/test_cert.der");
-/// let client = Client::builder()
-///     .with_capacity(20)
-///     .build()?;
+/// let client = Client::builder().with_capacity(20).build()?;
 ///
 /// let response = bitreq::get("https://example.com")
 ///     .send_async_with_client(&client)
@@ -107,40 +101,16 @@ pub struct ClientBuilder {
 /// # }
 /// ```
 impl ClientBuilder {
-    /// Creates a new `ClientBuilder` with default settings.
-    ///
-    /// Default configuration:
-    /// * `capacity` - 10 (single connection)
-    /// * `root_certificates` - None (uses system certificates)
+    /// Creates a new `ClientBuilder` with a default pool capacity of 10.
     pub fn new() -> Self { Self { capacity: 10, client_config: None } }
 
     /// Sets the maximum number of connections to keep in the pool.
-    ///
-    /// When the pool reaches this capacity, the least recently used connection
-    /// is evicted to make room for new connections.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` - Maximum number of cached connections
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use bitreq::Client;
-    /// let client = Client::builder()
-    ///     .with_capacity(10)
-    ///     .build()
-    ///     .unwrap();
-    /// ```
     pub fn with_capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
         self
     }
 
     /// Builds the `Client` with the configured settings.
-    ///
-    /// Consumes the builder and returns a configured `Client` instance
-    /// ready to send requests with connection pooling.
     pub fn build(self) -> Result<Client, Error> {
         let build = self.client_config.map(|c| c.build());
         let client_config = match build {
@@ -158,36 +128,20 @@ impl ClientBuilder {
             })),
         })
     }
-
-    /// Adds a custom root certificate for TLS verification.
-    ///
+    /// Adds a custom DER-encoded root certificate for TLS verification.
     /// The certificate must be provided in DER format. This method accepts any type
-    /// that can be converted into a `Vec<u8>`, such as `Vec<u8>`, `&[u8]`, or arrays.
-    /// This is useful when connecting to servers using self-signed certificates
-    /// or custom Certificate Authorities.
-    ///
-    /// # Arguments
-    ///
-    /// * `cert_der` - A DER-encoded X.509 certificate. Accepts any type that implements
-    ///   `Into<Vec<u8>>` (e.g., `&[u8]`, `Vec<u8>`, or `[u8; N]`).
+    /// that can be converted into a `Vec<u8>`.
+    /// The certificate is appended to the default trust store rather than replacing it.
+    /// The trust store used depends on the TLS backend: system certificates for native-tls,
+    /// Mozilla's root certificates(rustls-webpki) and/or system certificates(rustls-native-certs) for rustls.
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use bitreq::Client;
     /// # async fn example() -> Result<(), bitreq::Error> {
-    /// // Using a byte slice
-    /// let cert_der: &[u8] = include_bytes!("../tests/test_cert.der");
     /// let client = Client::builder()
-    ///     .with_root_certificate(cert_der)
-    ///     .unwrap()
-    ///     .build()?;
-    ///
-    /// // Using a Vec<u8>
-    /// let cert_vec: Vec<u8> = cert_der.to_vec();
-    /// let client = Client::builder()
-    ///     .with_root_certificate(cert_vec)
-    ///     .unwrap()
+    ///     .with_root_certificate(include_bytes!("../tests/test_cert.der"))?
     ///     .build()?;
     /// # Ok(())
     /// # }
