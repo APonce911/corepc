@@ -16,6 +16,7 @@ use crate::Error;
 #[cfg(feature = "rustls")]
 pub(crate) struct Certificates {
     pub(crate) inner: Arc<RootCertStore>,
+    pub(crate) disable_default: bool,
 }
 
 #[derive(Clone)]
@@ -34,7 +35,7 @@ pub(crate) enum CertificatesInner {
 impl Certificates {
     #[cfg(feature = "rustls")]
     pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
-        let certificates = Self { inner: Arc::new(RootCertStore::empty()) };
+        let certificates = Self { inner: Arc::new(RootCertStore::empty()), disable_default: false };
 
         if let Some(cert_der) = cert_der {
             certificates.append_certificate(cert_der)
@@ -127,5 +128,22 @@ impl Certificates {
             }));
         }
         self
+    }
+
+    #[cfg(feature = "rustls")]
+    pub(crate) fn disable_default(mut self) -> Result<Self, Error> {
+        self.disable_default = true;
+        Ok(self)
+    }
+
+    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+    pub(crate) fn disable_default(self) -> Result<Self, Error> {
+        match self.inner {
+            CertificatesInner::Builder(ref builder_mutex) => {
+                builder_mutex.lock().unwrap().disable_built_in_roots(true);
+                Ok(self)
+            }
+            CertificatesInner::Built(_) => return Err(Error::InvalidTlsConfig),
+        }
     }
 }

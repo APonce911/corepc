@@ -66,6 +66,10 @@ impl TlsConfig {
 
     #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     fn build(mut self) -> Result<Self, Error> {
+        if self.certificates.disable_default {
+            return Ok(self);
+        }
+
         self.certificates = self.certificates.with_root_certificates();
         Ok(self)
     }
@@ -164,6 +168,19 @@ impl ClientBuilder {
 
         let tls_config = TlsConfig::new(cert_der)?;
         self.client_config = Some(ClientConfig { tls: Some(tls_config) });
+        Ok(self)
+    }
+
+    /// Disables default root certificates for TLS connections.
+    /// Returns [`Error::InvalidTlsConfig`] if TLS has not been configured.
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
+    pub fn disable_default_certificates(mut self) -> Result<Self, Error> {
+        let client_config = self.client_config.as_mut().ok_or(Error::InvalidTlsConfig)?;
+        let tls_config = client_config.tls.as_mut().ok_or(Error::InvalidTlsConfig)?;
+        tls_config.certificates = tls_config.certificates.clone().disable_default()?;
         Ok(self)
     }
 }

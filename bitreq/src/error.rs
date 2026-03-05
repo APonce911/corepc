@@ -31,6 +31,9 @@ pub enum Error {
     #[cfg(feature = "native-tls")]
     /// Ran into a native-tls error while appending a certificate.
     NativeTlsAppendCert,
+    #[cfg(any(feature = "rustls", feature = "native-tls"))]
+    /// The current TLS configuration is invalid.
+    InvalidTlsConfig,
     /// Ran into an IO problem while loading the response.
     #[cfg(feature = "std")]
     IoError(io::Error),
@@ -116,6 +119,8 @@ impl fmt::Display for Error {
             NativeTlsCreateConnection(err) => write!(f, "error creating native-tls connection: {}", err),
             #[cfg(feature = "native-tls")]
             NativeTlsAppendCert => write!(f, "error appending certificate"),
+            #[cfg(any(feature = "rustls", feature = "native-tls"))]
+            InvalidTlsConfig => write!(f, "error disabling default certificates. Must have custom cert."),
             MalformedChunkLength => write!(f, "non-usize chunk length with transfer-encoding: chunked"),
             MalformedChunkEnd => write!(f, "chunk did not end after reading the expected amount of bytes"),
             MalformedContentLength => write!(f, "non-usize content length"),
