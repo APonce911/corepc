@@ -315,7 +315,9 @@ impl AsyncConnection {
         client_config: Option<Arc<ClientConfig>>,
     ) -> Result<AsyncHttpStream, Error> {
         if let Some(client_config) = client_config {
-            rustls_stream::wrap_async_stream_with_configs(socket, host, client_config).await
+            let tls_config = client_config.tls.as_ref().unwrap();
+            let certificates = tls_config.certificates.clone();
+            rustls_stream::wrap_async_stream_with_configs(socket, host, certificates).await
         } else {
             rustls_stream::wrap_async_stream(socket, host).await
         }

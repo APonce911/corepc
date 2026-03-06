@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
     all(feature = "native-tls", feature = "tokio-native-tls"),
     all(feature = "rustls", feature = "tokio-rustls")
 ))]
-use crate::connection::certificates::Certificates;
+use crate::connection::certificates::{Certificates, CertificatesBuilder};
 use crate::connection::AsyncConnection;
 use crate::request::{OwnedConnectionParams as ConnectionKey, ParsedRequest};
 use crate::{Error, Request, Response};
@@ -25,23 +25,6 @@ pub(crate) struct ClientConfig {
         all(feature = "rustls", feature = "tokio-rustls")
     ))]
     pub(crate) tls: Option<TlsConfig>,
-}
-
-impl ClientConfig {
-    #[cfg(any(
-        all(feature = "native-tls", feature = "tokio-native-tls"),
-        all(feature = "rustls", feature = "tokio-rustls")
-    ))]
-    pub fn build(self) -> Result<Self, Error> {
-        let tls = self.tls.map(|tls| tls.build()).transpose()?;
-        Ok(Self { tls })
-    }
-
-    #[cfg(not(any(
-        all(feature = "native-tls", feature = "tokio-native-tls"),
-        all(feature = "rustls", feature = "tokio-rustls")
-    )))]
-    pub fn build(self) -> Result<Self, Error> { Ok(Self {}) }
 }
 
 #[cfg(any(
@@ -58,34 +41,16 @@ pub(crate) struct TlsConfig {
     all(feature = "rustls", feature = "tokio-rustls")
 ))]
 impl TlsConfig {
-    fn new(cert_der: Vec<u8>) -> Result<Self, Error> {
-        let certificates = Certificates::new(Some(cert_der))?;
-
-        Ok(Self { certificates })
-    }
-
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
-    fn build(mut self) -> Result<Self, Error> {
-        if self.certificates.disable_default {
-            return Ok(self);
-        }
-
-        self.certificates = self.certificates.with_root_certificates();
-        Ok(self)
-    }
-
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
-    fn build(mut self) -> Result<Self, Error> {
-        let certificates = self.certificates.build()?;
-
-        self.certificates = certificates;
-        Ok(self)
-    }
+    fn new(certificates: Certificates) -> Self { Self { certificates } }
 }
 
 pub struct ClientBuilder {
     capacity: usize,
-    client_config: Option<ClientConfig>,
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
+    certificates: Option<CertificatesBuilder>,
 }
 
 /// Builder for configuring a `Client` with custom settings.
@@ -106,7 +71,18 @@ pub struct ClientBuilder {
 /// ```
 impl ClientBuilder {
     /// Creates a new `ClientBuilder` with a default pool capacity of 10.
-    pub fn new() -> Self { Self { capacity: 10, client_config: None } }
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
+    pub fn new() -> Self { Self { capacity: 10, certificates: None } }
+
+    /// Creates a new `ClientBuilder` with a default pool capacity of 10.
+    #[cfg(not(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    )))]
+    pub fn new() -> Self { Self { capacity: 10 } }
 
     /// Sets the maximum number of connections to keep in the pool.
     pub fn with_capacity(mut self, capacity: usize) -> Self {
@@ -114,14 +90,20 @@ impl ClientBuilder {
         self
     }
 
+    #[cfg(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    ))]
     /// Builds the `Client` with the configured settings.
     pub fn build(self) -> Result<Client, Error> {
-        let build = self.client_config.map(|c| c.build());
-        let client_config = match build {
-            Some(Ok(config)) => Some(Arc::new(config)),
-            Some(Err(e)) => return Err(e),
-            None => None,
+        let build_config = if let Some(builder) = self.certificates {
+            let certificates = builder.build()?;
+            let tls_config = TlsConfig::new(certificates);
+            Some(ClientConfig { tls: Some(tls_config) })
+        } else {
+            None
         };
+        let client_config = build_config.map(Arc::new);
 
         Ok(Client {
             r#async: Arc::new(Mutex::new(ClientImpl {
@@ -132,6 +114,23 @@ impl ClientBuilder {
             })),
         })
     }
+
+    /// Builds the `Client` with the configured settings.
+    #[cfg(not(any(
+        all(feature = "native-tls", feature = "tokio-native-tls"),
+        all(feature = "rustls", feature = "tokio-rustls")
+    )))]
+    pub fn build(self) -> Result<Client, Error> {
+        Ok(Client {
+            r#async: Arc::new(Mutex::new(ClientImpl {
+                connections: HashMap::new(),
+                lru_order: VecDeque::new(),
+                capacity: self.capacity,
+                client_config: None,
+            })),
+        })
+    }
+
     /// Adds a custom DER-encoded root certificate for TLS verification.
     /// The certificate must be provided in DER format. This method accepts any type
     /// that can be converted into a `Vec<u8>`.
@@ -156,18 +155,13 @@ impl ClientBuilder {
     ))]
     pub fn with_root_certificate<T: Into<Vec<u8>>>(mut self, cert_der: T) -> Result<Self, Error> {
         let cert_der = cert_der.into();
+        if let Some(ref mut certificates) = self.certificates {
+            certificates.append_certificate(cert_der)?;
 
-        if let Some(ref mut client_config) = self.client_config {
-            if let Some(ref mut tls_config) = client_config.tls {
-                let certificates = tls_config.certificates.clone().append_certificate(cert_der)?;
-                tls_config.certificates = certificates;
-
-                return Ok(self);
-            }
+            return Ok(self);
         }
 
-        let tls_config = TlsConfig::new(cert_der)?;
-        self.client_config = Some(ClientConfig { tls: Some(tls_config) });
+        self.certificates = Some(CertificatesBuilder::new(Some(cert_der))?);
         Ok(self)
     }
 
@@ -178,9 +172,11 @@ impl ClientBuilder {
         all(feature = "rustls", feature = "tokio-rustls")
     ))]
     pub fn disable_default_certificates(mut self) -> Result<Self, Error> {
-        let client_config = self.client_config.as_mut().ok_or(Error::InvalidTlsConfig)?;
-        let tls_config = client_config.tls.as_mut().ok_or(Error::InvalidTlsConfig)?;
-        tls_config.certificates = tls_config.certificates.clone().disable_default()?;
+        match self.certificates {
+            Some(ref mut certificates) => certificates.disable_default()?,
+            None => return Err(Error::InvalidTlsConfig),
+        };
+
         Ok(self)
     }
 }

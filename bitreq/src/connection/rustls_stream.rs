@@ -1,7 +1,7 @@
 //! TLS connection handling functionality - supports both `rustls` and `native-tls` backends.
 //! When both features are enabled, rustls takes precedence.
 
-#[cfg(any(feature = "rustls", feature = "native-tls"))]
+#[cfg(feature = "rustls")]
 use alloc::sync::Arc;
 #[cfg(feature = "rustls")]
 use core::convert::TryFrom;
@@ -32,9 +32,7 @@ use super::{AsyncHttpStream, AsyncTcpStream};
     all(feature = "native-tls", feature = "tokio-native-tls"),
     all(feature = "rustls", feature = "tokio-rustls")
 ))]
-use crate::client::ClientConfig as CustomClientConfig;
-#[cfg(all(feature = "native-tls", feature = "tokio-native-tls", not(feature = "rustls")))]
-use crate::connection::certificates::CertificatesInner;
+use crate::connection::certificates::Certificates;
 use crate::Error;
 
 #[cfg(feature = "rustls")]
@@ -132,7 +130,7 @@ pub(super) async fn wrap_async_stream(
 pub(super) async fn wrap_async_stream_with_configs(
     tcp: AsyncTcpStream,
     host: &str,
-    custom_client_config: Arc<CustomClientConfig>,
+    certificates: Certificates,
 ) -> Result<AsyncHttpStream, Error> {
     #[cfg(feature = "log")]
     log::trace!("Setting up TLS parameters for {host}.");
@@ -140,10 +138,7 @@ pub(super) async fn wrap_async_stream_with_configs(
         Ok(result) => result,
         Err(err) => return Err(Error::IoError(io::Error::new(io::ErrorKind::Other, err))),
     };
-
-    let tls_config = custom_client_config.tls.as_ref().unwrap();
-    let certificates = Arc::clone(&tls_config.certificates.inner);
-
+    let certificates = certificates.0;
     let client_config = build_rustls_client_config(certificates);
     let connector = TlsConnector::from(client_config);
 
@@ -229,18 +224,12 @@ pub(super) async fn wrap_async_stream(
 pub(super) async fn wrap_async_stream_with_configs(
     tcp: AsyncTcpStream,
     host: &str,
-    custom_client_config: Arc<CustomClientConfig>,
+    client_configs: Certificates,
 ) -> Result<AsyncHttpStream, Error> {
     #[cfg(feature = "log")]
     log::trace!("Setting up TLS parameters for {host}.");
 
-    let tls_config = custom_client_config.tls.as_ref().unwrap();
-    let connector = match &tls_config.certificates.inner {
-        CertificatesInner::Builder(b) => b.lock().unwrap().build()?,
-        CertificatesInner::Built(conn) => conn.clone(),
-    };
-
-    let async_connector = AsyncTlsConnector::from(connector);
+    let async_connector = client_configs.0;
 
     #[cfg(feature = "log")]
     log::trace!("Establishing TLS session to {host}.");
