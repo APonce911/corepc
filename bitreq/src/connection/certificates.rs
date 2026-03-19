@@ -1,30 +1,29 @@
-#[cfg(any(feature = "rustls", feature = "native-tls"))]
 use std::sync::Arc;
 
-#[cfg(all(feature = "native-tls", not(feature = "rustls")))]
+#[cfg(not(feature = "rustls"))]
 use native_tls::{Certificate, TlsConnector, TlsConnectorBuilder};
 #[cfg(feature = "rustls")]
 use rustls::RootCertStore;
-#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+#[cfg(not(feature = "rustls"))]
 use tokio_native_tls::TlsConnector as AsyncTlsConnector;
 #[cfg(feature = "rustls-webpki")]
 use webpki_roots::TLS_SERVER_ROOTS;
 
 use crate::Error;
 
-#[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+#[cfg(feature = "rustls")]
 pub(crate) struct CertificatesBuilder {
     pub(crate) inner: RootCertStore,
     pub(crate) disable_default: bool,
 }
 
-#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+#[cfg(not(feature = "rustls"))]
 pub(crate) struct CertificatesBuilder {
     pub(crate) inner: TlsConnectorBuilder,
 }
 
+#[cfg(feature = "rustls")]
 impl CertificatesBuilder {
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
         let mut certificates = Self { inner: RootCertStore::empty(), disable_default: false };
 
@@ -35,42 +34,12 @@ impl CertificatesBuilder {
         Ok(certificates)
     }
 
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
-    pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
-        let builder = TlsConnector::builder();
-        let mut certificates = Self { inner: builder };
-
-        if let Some(cert_der) = cert_der {
-            certificates.append_certificate(cert_der)?;
-        }
-
-        Ok(certificates)
-    }
-
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     pub(crate) fn append_certificate(&mut self, cert_der: Vec<u8>) -> Result<&mut Self, Error> {
         self.inner.add(&rustls::Certificate(cert_der)).map_err(Error::RustlsAppendCert)?;
 
         Ok(self)
     }
 
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
-    pub(crate) fn append_certificate(&mut self, cert_der: Vec<u8>) -> Result<&mut Self, Error> {
-        let certificate = Certificate::from_der(&cert_der)?;
-        self.inner.add_root_certificate(certificate);
-
-        Ok(self)
-    }
-
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
-    pub(crate) fn build(self) -> Result<Certificates, Error> {
-        let connector = self.inner.build()?;
-        let async_connector = AsyncTlsConnector::from(connector);
-
-        Ok(Certificates(Arc::new(async_connector)))
-    }
-
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     pub(crate) fn build(mut self) -> Result<Certificates, Error> {
         if !self.disable_default {
             self.with_root_certificates();
@@ -79,7 +48,6 @@ impl CertificatesBuilder {
         Ok(Certificates(Arc::new(self.inner)))
     }
 
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     fn with_root_certificates(&mut self) -> &mut Self {
         // Try to load native certs
         #[cfg(feature = "https-rustls-probe")]
@@ -106,13 +74,39 @@ impl CertificatesBuilder {
         self
     }
 
-    #[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
     pub(crate) fn disable_default(&mut self) -> Result<&mut Self, Error> {
         self.disable_default = true;
         Ok(self)
     }
+}
 
-    #[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+#[cfg(not(feature = "rustls"))]
+impl CertificatesBuilder {
+    pub(crate) fn new(cert_der: Option<Vec<u8>>) -> Result<Self, Error> {
+        let builder = TlsConnector::builder();
+        let mut certificates = Self { inner: builder };
+
+        if let Some(cert_der) = cert_der {
+            certificates.append_certificate(cert_der)?;
+        }
+
+        Ok(certificates)
+    }
+
+    pub(crate) fn append_certificate(&mut self, cert_der: Vec<u8>) -> Result<&mut Self, Error> {
+        let certificate = Certificate::from_der(&cert_der)?;
+        self.inner.add_root_certificate(certificate);
+
+        Ok(self)
+    }
+
+    pub(crate) fn build(self) -> Result<Certificates, Error> {
+        let connector = self.inner.build()?;
+        let async_connector = AsyncTlsConnector::from(connector);
+
+        Ok(Certificates(Arc::new(async_connector)))
+    }
+
     pub(crate) fn disable_default(&mut self) -> Result<&mut Self, Error> {
         self.inner.disable_built_in_roots(true);
         Ok(self)
@@ -120,9 +114,9 @@ impl CertificatesBuilder {
 }
 
 #[derive(Clone)]
-#[cfg(all(feature = "rustls", feature = "tokio-rustls"))]
+#[cfg(feature = "rustls")]
 pub(crate) struct Certificates(pub(crate) Arc<RootCertStore>);
 
 #[derive(Clone)]
-#[cfg(all(feature = "native-tls", not(feature = "rustls"), feature = "tokio-native-tls"))]
+#[cfg(not(feature = "rustls"))]
 pub(crate) struct Certificates(pub(crate) Arc<AsyncTlsConnector>);
